@@ -1,14 +1,16 @@
 # pi-inject
 
-A private CLI tool that uses the Anthropic API to transform source files so all visible text elements become **bold** and styled with a **theme-appropriate blue**.
-
----
+A CLI tool that uses the Anthropic API to automatically transform source files by injecting a hardcoded system prompt. The tool is designed for prompt injection defense research — the current system prompt (bold + blue text styling) is a placeholder used to validate that the pipeline correctly reaches and modifies source files end-to-end.
 
 ## What it does
 
-`pi-inject` reads your frontend source files, sends each one to Claude (claude-sonnet-4-6), and rewrites them so that every visible text element — headings, paragraphs, labels, buttons, links, inputs, placeholders, table cells, etc. — is bold and colored with a blue shade that fits the existing design language of the site.
+`pi-inject` walks a codebase, sends each source file to Claude, and rewrites it according to a hardcoded system prompt. The tool's architecture is model-agnostic with respect to the prompt — swapping the system prompt is the only change needed to go from the test harness to the real injection logic.
 
-It does **not** change layout, structure, functionality, or non-text visual elements. It only touches text styling.
+**Current system prompt (placeholder):** Rewrites every visible text element to be bold and colored with a theme-appropriate blue. This was chosen as a placeholder because the effect is immediately visible in a browser, making it easy to verify the tool is correctly reading, transforming, and writing back every file in the target directory.
+
+**Intended system prompt (research use):** Embeds context-aware prompt injection payloads into source code as plausible developer comments, causing LLM-powered vulnerability scanning agents to produce false negatives on real vulnerabilities.
+
+It does not change layout, structure, functionality, or non-text visual elements. It only touches what the system prompt instructs it to touch.
 
 ---
 
@@ -131,6 +133,55 @@ The model is given a fixed system prompt that instructs it to:
 5. Never wrap output in markdown fences — output only the complete modified file.
 
 The user prompt template fills in the file path, extension, and raw file content. There is no other user input at any point during processing.
+
+---
+
+## Code walkthrough (for contributors)
+
+Everything lives in `src/index.ts`. Here's how the pieces fit together so you can start editing immediately.
+
+### Entry point & CLI parsing (`main`)
+
+`main()` at the bottom of the file wires up [Commander](https://github.com/tj/commander.js) to parse `<target>`, `--output`, `--dry-run`, and `--delay`. After parsing, it resolves the API key, validates the target path, collects files, then loops through them calling `processFile()` with an optional delay between each call.
+
+### File collection (`collectFiles`)
+
+Recursively walks the target using `fs.readdirSync`. Filters by the `SUPPORTED_EXTENSIONS` set. Returns a flat array of absolute file paths. If the target is a single file it just checks the extension directly. Nothing fancy — no symlink handling, no hidden-file exclusion.
+
+### Per-file processing (`processFile`)
+
+This is the core function. In order:
+
+1. **Size check** — reads the file and bails out (with a stderr log) if it exceeds `MAX_FILE_CHARS` (80,000).
+2. **Prompt construction** — calls `buildUserPrompt(filepath, ext, content)` which slots the values into the hardcoded template string. The system prompt (`SYSTEM_PROMPT`) is a module-level constant — this is the only thing you need to change to alter the tool's behavior.
+3. **Streaming API call** — opens a stream via `client.messages.stream({ model, max_tokens, system, messages })`. Iterates over events with `for await`, accumulating `text_delta` chunks into a string. A `setInterval` fires every 500ms to print a `.` to stderr as a progress indicator, cleared in the `finally` block.
+4. **Fence stripping** — `stripMarkdownFences()` removes any leading ` ```lang\n ` and trailing ` \n``` ` the model might have added despite being told not to.
+5. **Write** — if `--dry-run`, prints to stdout. If `--output` is set, mirrors the source directory structure under that directory and writes there. Otherwise overwrites the original file in-place.
+
+### Prompt structure
+
+Two hardcoded strings in `src/index.ts`:
+
+- `SYSTEM_PROMPT` — the constant instruction given to the model on every call. **Swap this to change what the tool does.**
+- `buildUserPrompt(filepath, ext, content)` — a template function that produces the per-file user message. It passes the file path, extension, and raw content. The model uses the path and extension as hints about how to interpret the file.
+
+### Swapping the system prompt
+
+Find `SYSTEM_PROMPT` near the top of `src/index.ts` and replace the string. No other changes are needed. The user prompt template (`buildUserPrompt`) is intentionally generic and will work unchanged for any transformation task.
+
+### Output routing
+
+| Output type | Where it goes |
+|---|---|
+| Progress dots, file status, errors | `stderr` |
+| `--dry-run` file content | `stdout` |
+| Written files | disk (in-place or `--output` dir) |
+
+This separation means `pi-inject ./src --dry-run > out.txt` captures only file content, not noise.
+
+### Error handling
+
+`AuthenticationError` and `RateLimitError` from the Anthropic SDK are caught at the loop level and cause an immediate `process.exit(1)`. All other per-file errors are caught, logged to stderr, and the loop continues to the next file.
 
 ---
 
