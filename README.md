@@ -6,7 +6,7 @@ A private CLI tool that uses the Anthropic API to transform source files so all 
 
 ## What it does
 
-`pi-inject` reads your frontend source files, sends each one to Claude (claude-opus-4-6), and rewrites them so that every visible text element — headings, paragraphs, labels, buttons, links, inputs, placeholders, table cells, etc. — is bold and colored with a blue shade that fits the existing design language of the site.
+`pi-inject` reads your frontend source files, sends each one to Claude (claude-sonnet-4-6), and rewrites them so that every visible text element — headings, paragraphs, labels, buttons, links, inputs, placeholders, table cells, etc. — is bold and colored with a blue shade that fits the existing design language of the site.
 
 It does **not** change layout, structure, functionality, or non-text visual elements. It only touches text styling.
 
@@ -99,7 +99,7 @@ Files over **80,000 characters** are skipped (logged to stderr).
 
 1. The file is read from disk.
 2. A user prompt is built with the file path, extension, and full content.
-3. The prompt is sent to `claude-opus-4-6` via `client.messages.stream()`.
+3. The prompt is sent to `claude-sonnet-4-6` via `client.messages.stream()`.
 4. While the model streams its response, dots (`.`) are printed to **stderr** as a progress indicator.
 5. Once streaming is complete, any markdown code fences (` ```lang ... ``` `) are stripped from the output — the model is instructed not to include them, but the strip is a safety net.
 6. The result is written back to the original file (or to `--output` if specified).

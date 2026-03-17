@@ -108,7 +108,7 @@ async function processFile(
 
   try {
     const stream = client.messages.stream({
-      model: 'claude-opus-4-6',
+      model: 'claude-sonnet-4-6',
       max_tokens: 16384,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userPrompt }],
